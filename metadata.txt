@@ -1,0 +1,47 @@
+# This file contains metadata for your plugin.
+
+# This file should be included when you package your plugin.# Mandatory items:
+
+[general]
+name=LinhasGeoIME
+qgisMinimumVersion=3.0
+description=Plugin referente ao projeto de fim de curso de 2025
+version=0.1
+author=Ana Paula Pires dos Santos, Paulo Melo Coutinho Neves, Gabriella Bezerra Vale
+email=anapaulapiressantos19@ime.eb.br
+
+about=O seguinte plugin refere-se ao projeto de fim de curso do 5 ano do IME. Ele consiste na plotagem de linhas geodésicas utilizando os métodos de Karney, Bessel e Vincent
+
+tracker=http://bugs
+repository=https://github.com/APaula19/pfc
+# End of mandatory metadata
+
+# Recommended items:
+
+hasProcessingProvider=yes
+# Uncomment the following line and add your changelog:
+# changelog=
+
+# Tags are comma separated with spaces allowed
+tags=python
+
+homepage=https://github.com/APaula19/pfc
+category=Analysis
+icon=icon.png
+# experimental flag
+experimental=False
+
+# deprecated flag (applies to the whole plugin, not just a single version)
+deprecated=False
+
+# Since QGIS 3.8, a comma separated list of plugins to be installed
+# (or upgraded) can be specified.
+# Check the documentation for more information.
+# plugin_dependencies=
+
+Category of the plugin: Raster, Vector, Database or Web
+# category=
+
+# If the plugin can run on QGIS Server.
+server=False
+
