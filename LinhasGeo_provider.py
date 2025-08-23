@@ -31,6 +31,8 @@ __copyright__ = '(C) 2025 by Ana Paula Pires dos Santos, Paulo Melo Coutinho Nev
 __revision__ = '$Format:%H$'
 
 from qgis.core import QgsProcessingProvider
+from qgis.PyQt.QtGui import QIcon
+import os
 from .LinhasGeo_algorithm import LinhasGeoIMEAlgorithm
 
 
@@ -63,7 +65,7 @@ class LinhasGeoIMEProvider(QgsProcessingProvider):
         string should be a unique, short, character only string, eg "qgis" or
         "gdal". This string should not be localised.
         """
-        return ''
+        return 'linhasgeoime'
 
     def name(self):
         """
@@ -72,14 +74,14 @@ class LinhasGeoIMEProvider(QgsProcessingProvider):
 
         This string should be short (e.g. "Lastools") and localised.
         """
-        return self.tr('')
+        return self.tr('Linhas GeoIME')
 
     def icon(self):
         """
         Should return a QIcon which is used for your provider inside
         the Processing toolbox.
         """
-        return QgsProcessingProvider.icon(self)
+        return QIcon(os.path.join(os.path.dirname(__file__), 'planeta.png'))
 
     def longName(self):
         """
@@ -88,4 +90,4 @@ class LinhasGeoIMEProvider(QgsProcessingProvider):
         (version 2.2.1)". This string should be localised. The default
         implementation returns the same string as name().
         """
-        return self.name()
+        return self.name('Linhas GeoIME - Projeto de Fim de Curso 2025')
