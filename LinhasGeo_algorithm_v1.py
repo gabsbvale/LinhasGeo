@@ -58,6 +58,44 @@ class LinhasGeoIMEAlgorithm(QgsProcessingAlgorithm):
     def tr(self, text):
         return QCoreApplication.translate('Processing', text)
 
+  # Documentação exibida no painel de ajuda do Processing 
+    def shortHelpString(self):
+        return self.tr(
+            """
+<h3> Plugin de Linhas Geodésicas</h3>
+<p>Esse plugin gera linhas geodésicas entre pontos a partir de um arquivo <b>CSV</b> ou de <b>entradas manuais</b> pelo métodos 
+<b>Inverso</b> (lat1, lon1, lat2, lon2) e <b>Direto</b> (lat1, lon1, azi1, dist). Suporta os métodos:
+<b>Karney/WGS84</b>, <b>Vincenty/WGS84</b> e <b>Bessel (GeographicLib)</b>.</p>
+
+<h4>Como usar</h4>
+<ol>
+  <li>Selecione o <b>método desejado</b> (Inverso ou Direto).</li>
+  <li>Escolha o <b>Método Geodésico</b> para o cálculo.</li>
+  <li>Forneça <b>exatamente uma</b> fonte de dados:
+      <ul>
+        <li><b>CSV (opcional)</b>: um arquivo com as colunas (aceita vírgula):<br/>
+            - Inverso: <code>lat1, lon1, lat2, lon2</code> (também aceitos: <code>lat inicial, long inicial, lat final, long final</code>)<br/>
+            - Direto: <code>lat1, lon1, azi1, dist</code> (também aceitos: <code>lat inicial, long inicial, azimute, distancia (km)</code>)
+        </li>
+        <li><b>Entradas manuais (opcionais)</b>: preencha apenas os campos correspondentes ao tipo escolhido.</li>
+      </ul>
+  </li>
+  <li>Defina a saída <b>Linhas geodésicas</b>.</li>
+</ol>
+
+<h4>Validações</h4>
+<ul>
+  <li>Entrada obrigatória: CSV <i>ou</i> campos manuais (não ambos).</li>
+  <li>Tipos numéricos: valores não numéricos (p.ex. datas em &quot;azi1&quot;) são rejeitados com mensagem.</li>
+  <li>Faixas: <code>lat ∈ [-90, 90]</code>, <code>lon ∈ [-180, 180]</code>, <code>dist ≥ 0</code>. <code>azi1</code> é normalizado para <code>[0, 360)</code>.</li>
+  <li>Vincenty: se os pares antípodas não convergem; o algoritmo solicita usar Karney/WGS84.</li>
+</ul>
+
+<h4>Campos de saída</h4>
+<p>Camada de </b>linhas</b> em EPSG:4326, com amostragem de ~1 ponto/km (mínimo 10 pontos por linha).</p>
+"""
+        )
+
     # --- Helpers de validação/normalização numérica ---
     def _read_float(self, row, keys, row_idx, feedback):
         for k in keys:
