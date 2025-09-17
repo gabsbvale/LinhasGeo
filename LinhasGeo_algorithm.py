@@ -57,6 +57,35 @@ class LinhasGeoIMEAlgorithm(QgsProcessingAlgorithm):
 
     def tr(self, text):
         return QCoreApplication.translate('Processing', text)
+         def _read_float(self, row, keys, row_idx, feedback):
+        for k in keys:
+            if k in row and str(row[k]).strip() != '':
+                val_str = str(row[k]).strip().replace(',', '.')
+                try:
+                    return float(val_str)
+                except ValueError:
+                    feedback.reportError(f"Linha {row_idx}: valor não numérico em '{k}' -> '{row[k]}'")
+                    raise
+        feedback.reportError(f"Linha {row_idx}: nenhuma das chaves {keys} presente/preenchida.")
+        raise ValueError("Campo obrigatório ausente")
+
+    def _check_ranges(self, lat, lon, azi=None, dist_km=None, row_idx=None, feedback=None):
+        if lat < -90 or lat > 90:
+            if feedback and row_idx is not None:
+                feedback.reportError(f"Linha {row_idx}: latitude fora do intervalo [-90, 90]: {lat}")
+            raise ValueError("Latitude inválida")
+        if lon < -180 or lon > 180:
+            if feedback and row_idx is not None:
+                feedback.reportError(f"Linha {row_idx}: longitude fora do intervalo [-180, 180]: {lon}")
+            raise ValueError("Longitude inválida")
+        if dist_km is not None and dist_km < 0:
+            if feedback and row_idx is not None:
+                feedback.reportError(f"Linha {row_idx}: distância negativa (km): {dist_km}")
+            raise ValueError("Distância inválida")
+        if azi is not None:
+            azi_norm = (azi % 360 + 360) % 360
+            return azi_norm
+        return None
 
     def createInstance(self):
         return LinhasGeoIMEAlgorithm()
@@ -101,230 +130,201 @@ class LinhasGeoIMEAlgorithm(QgsProcessingAlgorithm):
         method = self.parameterAsEnum(parameters, 'METHOD', context)
         csv_path = self.parameterAsFile(parameters, 'INPUT_CSV', context)
 
-        # Configurar saída
         fields = QgsFields()
         sink, dest_id = self.parameterAsSink(
             parameters, 'OUTPUT', context,
             fields, QgsWkbTypes.LineString,
             QgsCoordinateReferenceSystem('EPSG:4326'))
-        
-                
-        # Configurar o elipsoide conforme o método selecionado
-        if method == 0:  # Karney/WGS84
-            geod = Geodesic.WGS84
-            method_name = "Karney/WGS84"
 
+        if method == 0:
+            geod = Geodesic.WGS84
             with open(csv_path, 'r') as f:
                 reader = csv.DictReader(f)
-                
-                for row in reader:
+                for row_idx, row in enumerate(reader, start=2):
                     points = []
-                    
-                    if problem_type == 0:  # Problema Inverso
+                    if problem_type == 0:
                         try:
-                            if method == 2:  
-                                lat1 = float(row.get('lat inicial', row.get('lat1')))
-                                lon1 = float(row.get('long inicial', row.get('lon1')))
-                                lat2 = float(row.get('lat final', row.get('lat2')))
-                                lon2 = float(row.get('long final', row.get('lon2')))
-                            else:
-                                lat1 = float(row['lat1'])
-                                lon1 = float(row['lon1'])
-                                lat2 = float(row['lat2'])
-                                lon2 = float(row['lon2'])
-                            
-                            # Calcular linha geodésica
+                            lat1 = self._read_float(row, ['lat1', 'lat inicial'], row_idx, feedback)
+                            lon1 = self._read_float(row, ['lon1', 'long inicial'], row_idx, feedback)
+                            lat2 = self._read_float(row, ['lat2', 'lat final'], row_idx, feedback)
+                            lon2 = self._read_float(row, ['lon2', 'long final'], row_idx, feedback)
+                            self._check_ranges(lat1, lon1, row_idx=row_idx, feedback=feedback)
+                            self._check_ranges(lat2, lon2, row_idx=row_idx, feedback=feedback)
                             inv = geod.Inverse(lat1, lon1, lat2, lon2)
                             line = geod.Line(lat1, lon1, inv['azi1'])
                             points.append(QgsPointXY(lon1, lat1))
-                            
-                            # Adiciona pontos intermediários para uma linha mais suave
                             total_dist = inv['s12']
-                            steps = max(10, int(total_dist / 1000))  # Pelo menos 10 pontos ou 1 ponto por km
-                            
+                            steps = max(10, int(total_dist / 1000))
                             for i in range(1, steps + 1):
                                 dist = (i / steps) * total_dist
                                 pos = line.Position(dist)
                                 points.append(QgsPointXY(pos['lon2'], pos['lat2']))
-
                         except (KeyError, ValueError) as e:
-                            feedback.reportError(f"Erro no problema inverso: {str(e)}")
+                            feedback.reportError(f"Erro no problema inverso (linha {row_idx}): {str(e)}")
                             continue
-
-                    else:  # Problema Direto
+                    else:
                         try:
-                            if method == 2:
-                                lat1 = float(row.get('lat inicial', row.get('lat1')))
-                                lon1 = float(row.get('long inicial', row.get('lon1')))
-                                azi1 = float(row.get('azimute', row.get('azi1')))
-                                dist_km = float(row.get('distancia (km)', row.get('dist')))
-                            else:
-                                lat1 = float(row['lat1'])
-                                lon1 = float(row['lon1'])
-                                azi1 = float(row['azi1'])
-                                dist_km = float(row['dist'])
-                            
-                            # Gerar linha com pontos intermediários
+                            lat1 = self._read_float(row, ['lat1', 'lat inicial'], row_idx, feedback)
+                            lon1 = self._read_float(row, ['lon1', 'long inicial'], row_idx, feedback)
+                            azi1 = self._read_float(row, ['azi1', 'azimute'], row_idx, feedback)
+                            dist_km = self._read_float(row, ['dist', 'distancia (km)'], row_idx, feedback)
+                            self._check_ranges(lat1, lon1, row_idx=row_idx, feedback=feedback)
+                            azi1 = self._check_ranges(lat1, lon1, azi=azi1, row_idx=row_idx, feedback=feedback) or azi1
+                            self._check_ranges(lat1, lon1, dist_km=dist_km, row_idx=row_idx, feedback=feedback)
                             points.append(QgsPointXY(lon1, lat1))
                             line = geod.Line(lat1, lon1, azi1)
-                            total_dist = dist_km * 1000
-                            steps = max(10, int(dist_km))  # Pelo menos 10 pontos ou 1 ponto por km
-                            
+                            total_dist = dist_km * 1000.0
+                            steps = max(10, int(total_dist / 1000))
                             for i in range(1, steps + 1):
                                 dist = (i / steps) * total_dist
                                 pos = line.Position(dist)
                                 points.append(QgsPointXY(pos['lon2'], pos['lat2']))
-
                         except (KeyError, ValueError) as e:
-                            feedback.reportError(f"Erro no problema direto: {str(e)}")
+                            feedback.reportError(f"Erro no problema direto (linha {row_idx}): {str(e)}")
                             continue
-
-                    # Adicionar feature (para ambos os tipos)
                     feat = QgsFeature()
                     feat.setGeometry(QgsGeometry.fromPolylineXY(points))
                     sink.addFeature(feat)
-        elif method == 1:  # Vincenty/WGS84
-            features = self.calcular_com_vincenty(csv_path, 
-                                              'Inverso' if problem_type == 0 else 'Direto', 
-                                              feedback)
+        elif method == 1:
+            features = self.calcular_com_vincenty(csv_path,
+                                                  'Inverso' if problem_type == 0 else 'Direto',
+                                                  feedback)
             for feat in features:
                 sink.addFeature(feat)
-        else:  # Bessel
-            features = self.calcular_com_bessel(csv_path, 
-                                            'Inverso' if problem_type == 0 else 'Direto', 
-                                            feedback)
+        else:
+            features = self.calcular_com_bessel(csv_path,
+                                                'Inverso' if problem_type == 0 else 'Direto',
+                                                feedback)
             for feat in features:
                 sink.addFeature(feat)
-
 
         return {'OUTPUT': dest_id}
 
     def calcular_com_vincenty(self, caminho_arquivo, metodo, feedback):
-        """
-        Função adaptada para usar com QGIS e plotar linhas geodésicas
-        """
         df = pd.read_csv(caminho_arquivo)
         geod = Geodesic.WGS84
         features = []
-        
+
         def pontos_antipodais(lat1, lon1, lat2, lon2, tol=1e-5):
-
-            # mesma latitude com sinal trocado
-            cond_lat = abs(lat1 + lat2) < tol  
-
-            # diferença de longitude próxima de 180° (ou 0/360)
+            cond_lat = abs(lat1 + lat2) < tol
             dlon = abs((lon1 - lon2 + 180) % 360 - 180)
-            cond_lon = abs(dlon - 180) < tol  
-
+            cond_lon = abs(dlon - 180) < tol
             return cond_lat and cond_lon
 
         if metodo == 'Inverso':
-            for _, row in df.iterrows():
+            for i, row in df.iterrows():
+                row_idx = int(i) + 2
                 try:
-                    lat1, lon1, lat2, lon2 = row['lat1'], row['lon1'], row['lat2'], row['lon2']
-                    
+                    lat1 = self._read_float(row, ['lat1', 'lat inicial'], row_idx, feedback)
+                    lon1 = self._read_float(row, ['lon1', 'long inicial'], row_idx, feedback)
+                    lat2 = self._read_float(row, ['lat2', 'lat final'], row_idx, feedback)
+                    lon2 = self._read_float(row, ['lon2', 'long final'], row_idx, feedback)
+                    self._check_ranges(lat1, lon1, row_idx=row_idx, feedback=feedback)
+                    self._check_ranges(lat2, lon2, row_idx=row_idx, feedback=feedback)
                     if pontos_antipodais(lat1, lon1, lat2, lon2):
-                        feedback.reportError(
-                            f"Pontos ({lat1}, {lon1}) e ({lat2}, {lon2}) são/aproximam-se de antípodas. "
-                            "O método de Vincenty não converge nesse caso. Recomenda-se usar o método de Karney."
-                        )
+                        feedback.reportError(f"Linha {row_idx}: pontos antípodas para Vincenty; use Karney.")
                         continue
-                    
                     inv = geod.Inverse(lat1, lon1, lat2, lon2)
                     line = geod.Line(lat1, lon1, inv['azi1'])
-                    
-                    points1 = [QgsPointXY(lon1, lat1)]
-                    points2 = [QgsPointXY(lon2, lat2)]
-                    total_dist = vincenty(points1, points2, ellipsoid='WGS-84').meters
+                    total_dist = inv['s12']
                     steps = max(10, int(total_dist / 1000))
-                    
+                    points = [QgsPointXY(lon1, lat1)]
                     for i in range(1, steps + 1):
                         dist = (i / steps) * total_dist
                         pos = line.Position(dist)
                         points.append(QgsPointXY(pos['lon2'], pos['lat2']))
-                    
                     feat = QgsFeature()
                     feat.setGeometry(QgsGeometry.fromPolylineXY(points))
                     features.append(feat)
                 except Exception as e:
-                    feedback.reportError(f"Erro Vincenty Inverso: {str(e)}")
+                    feedback.reportError(f"Erro Vincenty Inverso (linha {row_idx}): {str(e)}")
                     continue
 
         elif metodo == 'Direto':
-            for _, row in df.iterrows():
+            for i, row in df.iterrows():
+                row_idx = int(i) + 2
                 try:
-                    lat1, lon1, azi1, dist = row['lat1'], row['lon1'], row['azi1'], row['dist']
+                    lat1 = self._read_float(row, ['lat1', 'lat inicial'], row_idx, feedback)
+                    lon1 = self._read_float(row, ['lon1', 'long inicial'], row_idx, feedback)
+                    azi1 = self._read_float(row, ['azi1', 'azimute'], row_idx, feedback)
+                    dist = self._read_float(row, ['dist', 'distancia (km)'], row_idx, feedback)
+                    self._check_ranges(lat1, lon1, row_idx=row_idx, feedback=feedback)
+                    azi1 = self._check_ranges(lat1, lon1, azi=azi1, row_idx=row_idx, feedback=feedback) or azi1
+                    self._check_ranges(lat1, lon1, dist_km=dist, row_idx=row_idx, feedback=feedback)
                     line = geod.Line(lat1, lon1, azi1)
-                    total_dist = dist * 1000
-                    steps = max(10, int(dist))
-                    
+                    total_dist = dist * 1000.0
+                    steps = max(10, int(total_dist / 1000))
                     points = [QgsPointXY(lon1, lat1)]
                     for i in range(1, steps + 1):
                         dist_step = (i / steps) * total_dist
                         pos = line.Position(dist_step)
                         points.append(QgsPointXY(pos['lon2'], pos['lat2']))
-                    
                     feat = QgsFeature()
                     feat.setGeometry(QgsGeometry.fromPolylineXY(points))
                     features.append(feat)
                 except Exception as e:
-                    feedback.reportError(f"Erro Vincenty Direto: {str(e)}")
+                    feedback.reportError(f"Erro Vincenty Direto (linha {row_idx}): {str(e)}")
                     continue
 
         return features
 
     def calcular_com_bessel(self, caminho_arquivo, metodo, feedback):
-        """
-        Função adaptada para usar com QGIS e plotar linhas geodésicas
-        """
         df = pd.read_csv(caminho_arquivo)
         geod = Geodesic(6377397.155, 1/299.1528128)
         features = []
 
-        for _, row in df.iterrows():
-            try:
-                lat1 = row.get("lat inicial", row.get("lat1"))
-                lon1 = row.get("long inicial", row.get("lon1"))
-                lat2 = row.get("lat final", row.get("lat2"))
-                lon2 = row.get("long final", row.get("lon2"))
-                dist = row.get("distancia (km)", row.get("dist"))
-                azimute = row.get("azimute", row.get("azi1"))
+        def has_value(row, key):
+            return key in row and str(row[key]).strip() != ''
 
-                if pd.notna(lat1) and pd.notna(lon1) and pd.notna(dist) and pd.notna(azimute):
-                    # Problema Direto
+        for i, row in df.iterrows():
+            row_idx = int(i) + 2
+            try:
+                direto = (
+                    (has_value(row, 'dist') or has_value(row, 'distancia (km)')) and
+                    (has_value(row, 'azi1') or has_value(row, 'azimute'))
+                )
+
+                if direto:
+                    lat1 = self._read_float(row, ['lat1', 'lat inicial'], row_idx, feedback)
+                    lon1 = self._read_float(row, ['lon1', 'long inicial'], row_idx, feedback)
+                    azimute = self._read_float(row, ['azi1', 'azimute'], row_idx, feedback)
+                    dist_km = self._read_float(row, ['dist', 'distancia (km)'], row_idx, feedback)
+                    self._check_ranges(lat1, lon1, row_idx=row_idx, feedback=feedback)
+                    azimute = self._check_ranges(lat1, lon1, azi=azimute, row_idx=row_idx, feedback=feedback) or azimute
+                    self._check_ranges(lat1, lon1, dist_km=dist_km, row_idx=row_idx, feedback=feedback)
                     line = geod.Line(lat1, lon1, azimute)
-                    total_dist = float(dist) * 1000
-                    steps = max(10, int(float(dist)))
-                    
+                    total_dist = float(dist_km) * 1000.0
+                    steps = max(10, int(total_dist / 1000))
                     points = [QgsPointXY(lon1, lat1)]
-                    for i in range(1, steps + 1):
-                        dist_step = (i / steps) * total_dist
+                    for j in range(1, steps + 1):
+                        dist_step = (j / steps) * total_dist
                         pos = line.Position(dist_step)
                         points.append(QgsPointXY(pos['lon2'], pos['lat2']))
-                    
                     feat = QgsFeature()
                     feat.setGeometry(QgsGeometry.fromPolylineXY(points))
                     features.append(feat)
-                
-                elif pd.notna(lat1) and pd.notna(lon1) and pd.notna(lat2) and pd.notna(lon2):
-                    # Problema Inverso
+                else:
+                    lat1 = self._read_float(row, ['lat1', 'lat inicial'], row_idx, feedback)
+                    lon1 = self._read_float(row, ['lon1', 'long inicial'], row_idx, feedback)
+                    lat2 = self._read_float(row, ['lat2', 'lat final'], row_idx, feedback)
+                    lon2 = self._read_float(row, ['lon2', 'long final'], row_idx, feedback)
+                    self._check_ranges(lat1, lon1, row_idx=row_idx, feedback=feedback)
+                    self._check_ranges(lat2, lon2, row_idx=row_idx, feedback=feedback)
                     inv = geod.Inverse(lat1, lon1, lat2, lon2)
                     line = geod.Line(lat1, lon1, inv['azi1'])
-                    total_dist = geod.inv(lon1, lat1, lon2, lat2)
+                    total_dist = inv['s12']
                     steps = max(10, int(total_dist / 1000))
-                    
                     points = [QgsPointXY(lon1, lat1)]
-                    for i in range(1, steps + 1):
-                        dist_step = (i / steps) * total_dist
+                    for j in range(1, steps + 1):
+                        dist_step = (j / steps) * total_dist
                         pos = line.Position(dist_step)
                         points.append(QgsPointXY(pos['lon2'], pos['lat2']))
-                    
                     feat = QgsFeature()
                     feat.setGeometry(QgsGeometry.fromPolylineXY(points))
                     features.append(feat)
-                
+
             except Exception as e:
-                feedback.reportError(f"Erro Bessel: {str(e)}")
+                feedback.reportError(f"Erro Bessel (linha {row_idx}): {str(e)}")
                 continue
 
         return features
